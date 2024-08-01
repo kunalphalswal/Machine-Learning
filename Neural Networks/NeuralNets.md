@@ -1,0 +1,1 @@
+Really unable to understand and implement backpropagation, especially in case of multiple input rows in the first layer because in the rest layers, the no of inputs rows would be only one.
