@@ -85,7 +85,7 @@ class Model:
                 cost+=abs(predictions[j]-y_train[j])
             print(f"Epoch :{i}, loss:{cost}")
     def train(self,layer_ind,input,labels,learning_rate):
-        #Calc loss if last layer else get loss from next layer
+        #Calc loss if at last layer, else get loss from next layer
         if(layer_ind==len(self.layers)):
             prevLoss=[]
             #there may be a better function in numpy

@@ -1,5 +1,1 @@
-# Draw out the whole backpropagation process.   
--  analysis of weights in tensorflow: to see whether a unit corresponds to a tangible classification or is every unit just a median adjusted to the whole dataset.
-- whether change in parameters of multiple neurons can have contradictory effect.
-- why neural nets with linear activation can't be used for regression and then how to use nn for regression.
-# Neural Nets -> Attention -> Natural Language Pre-processing(Embeddings) -> Transformers -> LLMs.
+# Add more ways for each part of neural net training process, both in doc and from scratch code.

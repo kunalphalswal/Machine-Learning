@@ -1,5 +1,6 @@
 # Neural Network
 Make a resource of neural networks with its complete information, all you know, and learn its implementation in pytorch, then move on to transformers.
+Claude Code review: https://claude.ai/chat/1f10a1e4-be59-4960-8abf-96901ddc39da
 
 ## Forward Pass
 - The first layer of the nn receives the input and each input row is passed to every single neuron in the layer which calculates 
@@ -27,7 +28,8 @@ The algorithm/formula to choose for calculating the loss depends on the type of 
 - In the above image, we calculate the derivative wrt the activation of last layer, and then that of whatever weight/(prev. layer activation) directly affects the last layer activation, using chain rule, and so on.. till the very first layer weights.
 ![activation grad](https://prod-files-secure.s3.us-west-2.amazonaws.com/d52683c4-63cf-4bb1-8fd5-9c59a8961cdb/814e8ce5-54b8-416e-b144-2cbdf34825b3/Untitled.png)
 1. The rate of change wrt an activation is derived from all the activations of next layer because this activation is fed to all the neurons of next layer and derivative of cost wrt them is dependent on this activation too.(Chain rule.)
-2. The rate of change wrt w's weights is equal to activation values which are different for each training example, hence the net rate of change wrt w weights is the mean of respective activation of all training examples.
+2. The rate of change wrt w's weights is equal to activation values which are different for each training example, hence the net rate of change wrt w weights is the mean of respective activation of all training examples.\
+[![Video explaining backpropagation](https://img.youtube.com/vi/tIeHLnjs5U8/0.jpg)](https://youtu.be/tIeHLnjs5U8?si=XXEHWNERdNC558rG)
 
 ## Parameter update.
 - Now we know how much changing (increasing) the value of a weight by a small margin will affect the cost of the model. We use this to update the weight accordingly. 
@@ -38,3 +40,4 @@ w=w-learning_rate*(dJ_dw)
 3. Subtraction: 
 a. If increasing weight increases the cost ie derivative is positive, this means that we should decrease the weight instead, here -ve sign in the formula is beneficial because in this case it results in decrease of weight. 
 b. If increasing the weight decreases the cost ie derivative is negative, this means that we should increase the weight and the -ve sign in the formula will result in increase of weight.
+
