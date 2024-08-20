@@ -24,6 +24,8 @@ The more similar two input vectors are, the more the value of their weight and t
 
 *Ques: How does self-attention contribute to learning/inference in transformers?*
 - So far, it seems that this only leads to new words that are most similar to set of words of the previous layer. Where is the understanding here?
+- Self attention leads to a set of outputs, each corresponding to an input and the output is kind of combination of all the inputs weighted by their similarity with THE input.
+- What makes this mechanism unique is its ability to formulate similarity between inputs, whereas architectures like neural networks generate the output from the inputs without considering operations between vectors.
 
 ## Parameters
 - So far, we did not have any parameters in the self-attention architecture and the ouputs were dependent on the input only.
@@ -86,3 +88,15 @@ Now, the calculation of output vector involves weights (Wq, Wk, Wv), which can b
 - Still not sure, how this solves the original problem of self-attention being unable to understand semantics.
 
 *Ques: How does self-attention incorporate long-range dependencies? Does it have the complete input as input to each level of self attention so that dot product is calculated between each pair of words?*
+- Question is basically how do you handle input that exceeds sequence length.
+
+## After Self-Attention
+- We input the output of self-attention to a multi-layer perceptron.
+- And what purpose does that serve other than simply fitting to the input data.
+
+QUES: Why does attention & this combination of attention and MLP yield results so good?
+
+## Layer Normalization
+- Used to keep the data from getting too large for calculation?
+- Applied after each attention and each MLP operation.
+- Combines residual connections with the input to generate the output. The residual connections help maintain the identity of data and limit the effect of operation on it?

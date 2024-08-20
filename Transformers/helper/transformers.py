@@ -8,13 +8,17 @@ class SelfAttention(nn.Module):
         assert k%heads==0
         self.k,self.heads=k,heads
         #The linear function creates a transformation layer which returns a transformed output for an input. y = x(W.T)
+        #these also act as one of the parameters of the model.
         self.toKeys = nn.Linear(k,k,bias=False) #wk
         self.toQueries = nn.Linear(k,k,bias=False) #wq
         self.toValues = nn.Linear(k,k,bias=False) #wv
-        #to concatenate the resultant chunks of each attention head
+
+        #to project the resultant chunks of each attention head
+        #combination can be done without transformation, so this projection isn't necessary.
         self.unifyHeads = nn.Linear(k,k)
+
     def forward(self,x):
-        #the input would be a 3-d vector of form (batch_size,seq_len,in_features) because the sequence of input vectors comes in batches.
+        #the input would be a 3-d vector of form (batch_size,seq_len,in_features) because the sequence of input vectors come batch by batch.
         b,t,k=x.size()
         h=self.heads
         #but how does the matrix multiplication work on 3d matrix such as x: it also gives out a 3d matrix of form (batch_size,seq_len,out_features)
@@ -32,7 +36,7 @@ class SelfAttention(nn.Module):
         queries = queries.view(b,t,h,headSize)
         values = values.view(b,t,h,headSize)
 
-        # - fold heads into the batch dimension=> needed to compute the dot product parallely
+        # - fold heads into the batch dimension=> needed to compute the dot product parallely for each sequence.
         keys = keys.transpose(1, 2).contiguous().view(b * h, t, headSize)
         queries = queries.transpose(1, 2).contiguous().view(b * h, t, headSize)
         values = values.transpose(1, 2).contiguous().view(b * h, t, headSize)
