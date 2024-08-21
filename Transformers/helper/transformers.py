@@ -17,8 +17,8 @@ class SelfAttention(nn.Module):
         #combination can be done without transformation, so this projection isn't necessary.
         self.unifyHeads = nn.Linear(k,k)
 
-    def forward(self,x):
-        #the input would be a 3-d vector of form (batch_size,seq_len,in_features) because the sequence of input vectors come batch by batch.
+    def forward(self,x, padding):
+        #the inputs x and padding would be a 3-d vector of form (batch_size,seq_len,in_features) because the sequence of input vectors come batch by batch.
         b,t,k=x.size()
         h=self.heads
         #but how does the matrix multiplication work on 3d matrix such as x: it also gives out a 3d matrix of form (batch_size,seq_len,out_features)
@@ -35,7 +35,6 @@ class SelfAttention(nn.Module):
         keys = keys.view(b,t,h,headSize)
         queries = queries.view(b,t,h,headSize)
         values = values.view(b,t,h,headSize)
-
         # - fold heads into the batch dimension=> needed to compute the dot product parallely for each sequence.
         keys = keys.transpose(1, 2).contiguous().view(b * h, t, headSize)
         queries = queries.transpose(1, 2).contiguous().view(b * h, t, headSize)
@@ -47,10 +46,16 @@ class SelfAttention(nn.Module):
 
         #compute weights
         raw_weights = torch.bmm(queries,keys.transpose(1,2))
+        padding = padding.unsqueeze(1).unsqueeze(2)  # (b, 1, 1, t)
+        padding = padding.expand(b, h, t, t).contiguous().view(b * h, t, t)
+
+        #make the weights corresponding to padded tokens -inf
+        attention_mask = (padding==0)
+        raw_weights.masked_fill_(mask=attention_mask,value=float('-inf'))
         #raw_weights is of dimension: b*h, t, t
 
         raw_weights /= headSize**(1/2)
-        weights = F.softmax(raw_weights,dim=2)
+        weights = F.softmax(raw_weights,dim=-1)
 
         #apply self-attention to the input vectors
         out = torch.bmm(weights, values).view(b,h,t,headSize)
@@ -73,13 +78,13 @@ class TransformerBlock(nn.Module):
         nn.Linear(4*k,k)
     )
     #but sequential's units will output a number, not a vector? yep and a vector is k numbers
-  def forward(self,x):
-    attended = self.attention(x)
+  def forward(self,x,padding):
+    attended = self.attention(x,padding)
     x=self.norm1(attended+x)
 
     fedForward = self.ff(x)
-    return self.norm2(fedForward+x)
-
+    return (self.norm2(fedForward+x),padding)
+#will you need to return padding too, because what one layer returns is passed to another as input?
 
 class CTransformer(nn.Module):
   def __init__(self,k,heads,depth,seq_length,num_tokens,num_classes):
@@ -95,12 +100,12 @@ class CTransformer(nn.Module):
     tblocks=[]
     for i in range(depth):
       tblocks.append(TransformerBlock(k,heads))
-    self.tblocks=nn.Sequential(*tblocks)
+    self.tblocks = tblocks
 
     #layer for handling output: project to an array of size num_classes
     self.toProbs = nn.Linear(k,num_classes)
 
-  def forward(self,x):
+  def forward(self,x,padding):
     # process the input before feeding to transformer blocks
     """
         :param x: A (b, t) tensor of integer values representing
@@ -125,7 +130,8 @@ class CTransformer(nn.Module):
     '''
     x = tokens+positions
 
-    x = self.tblocks(x)
+    for tblock in self.tblocks:
+       x,padding = tblock.forward(x,padding)
 
     #process the output before returning
     x = x.mean(dim=1) # calculates mean over the second dimension ie t. Now x is of shape (b,k) because each batch only has one vector

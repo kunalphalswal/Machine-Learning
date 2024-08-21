@@ -45,7 +45,7 @@ def handle_data(file_path,batch_size=10,seq_length=512):
           truncation=True,
           max_length=seq_length
       )
-
+      padding = (encoded_reviews['attention_mask'])
       # Define the split ratio 
       train_size = int(0.5 * len(dataset))
       test_size = len(dataset) - train_size
@@ -55,11 +55,13 @@ def handle_data(file_path,batch_size=10,seq_length=512):
       test_reviews =encoded_reviews['input_ids'][train_size:].view(test_size//batch_size,batch_size,seq_length)
       train_labels = labels[:train_size].view(train_size//batch_size,batch_size)
       test_labels = labels[train_size:].view(test_size//batch_size,batch_size)
+      train_padding = padding[:train_size].view(train_size//batch_size,batch_size,seq_length)
+      test_padding = padding[train_size:].view(test_size//batch_size,batch_size,seq_length)
       return (train_reviews.to(device), test_reviews.to(device),
-        train_labels.to(device), test_labels.to(device),
+        train_labels.to(device), test_labels.to(device),train_padding.to(device),test_padding.to(device),
         vocab_size)
 
-def train(model,x_train,x_labels,epochs=20,learning_rate=0.0001,lr_warmup=10000):
+def train(model,x_train,x_labels,padding,epochs=20,learning_rate=0.0001,lr_warmup=10000):
   #set the model to training mode
   model.train(True)
 
@@ -69,25 +71,27 @@ def train(model,x_train,x_labels,epochs=20,learning_rate=0.0001,lr_warmup=10000)
 
   #start the training in epochs, batches
   for epoch in range(epochs):
-    for batch_reviews,batch_labels in zip(x_train,x_labels):
+    epoch_loss = 0 
+    for batch_reviews,batch_labels,batch_padding in zip(x_train,x_labels,padding):
       opt.zero_grad()
-      out = model.forward(batch_reviews)
-      loss = F.nll_loss(out,batch_labels) #TODO:negative log likelihood loss calculation
-      #log the loss
-      print(f"Epoch {epoch}, loss: {loss}")
+      out = model.forward(batch_reviews,batch_padding)
+      loss = F.nll_loss(out,batch_labels) #TODO:read about negative log likelihood loss calculation
       loss.backward()
+      epoch_loss += loss
       #update parameters
       opt.step()
       #update learning rate
       sch.step()
+    #log the loss
+    print(f"Epoch {epoch}, loss: {epoch_loss}")
     #TODO:saving the model after each epoch to stop training without losing progress
 
-def test(model,x_test,x_labels):
+def test(model,x_test,x_labels,padding):
     #set model to evaluation mode
     model.eval()
     correct = 0
-    for batch_reviews,batch_labels in zip(x_test,x_labels):
-        out = model.forward(batch_reviews)
+    for batch_reviews,batch_labels,batch_padding in zip(x_test,x_labels,padding):
+        out = model.forward(batch_reviews,batch_padding)
         for i,prob in enumerate(out):
             if(torch.argmax(out[i])==batch_labels[i]):
                 correct+=1
@@ -118,17 +122,17 @@ if __name__=="__main__":
     embedding_dim = 128
     batch_size=5
     seq_length=256
-    train_reviews,test_reviews,train_labels,test_labels,vocab_size=handle_data(file_path,batch_size=10,seq_length=seq_length)
+    train_reviews,test_reviews,train_labels,test_labels,train_padding,test_padding,vocab_size=handle_data(file_path,batch_size=10,seq_length=seq_length)
 
     if(os.path.exists("IMDBSentiment.pth")==False):
         #train and save the model
         #define the model 
         model = CTransformer(k=embedding_dim,heads=8,depth=6,seq_length=seq_length,num_tokens=vocab_size,num_classes=2).to(device)
         #start the training
-        train(model,x_train=train_reviews,x_labels=train_labels,epochs=80,learning_rate=0.0001,lr_warmup=10000)
+        train(model,x_train=train_reviews,x_labels=train_labels,padding=train_padding,epochs=80,learning_rate=0.0001,lr_warmup=10000)
         torch.save(model.state_dict(),"IMDBSentiment.pth")
     else:
         #load the saved model
         model = CTransformer(embedding_dim,8,6,seq_length,vocab_size,2).to(device)
-        model.load_state_dict(torch.load("IMDBSentiment.pth"))
-    test(model,test_reviews,test_labels)
+        model.load_state_dict(torch.load("IMDBSentiment.pth",map_location=device))
+    test(model,test_reviews,test_labels,padding=test_padding)
