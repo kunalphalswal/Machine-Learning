@@ -83,7 +83,7 @@ class TransformerBlock(nn.Module):
     x=self.norm1(attended+x)
 
     fedForward = self.ff(x)
-    return (self.norm2(fedForward+x),padding)
+    return (self.norm2(fedForward+x))
 #will you need to return padding too, because what one layer returns is passed to another as input?
 
 class CTransformer(nn.Module):
@@ -130,8 +130,8 @@ class CTransformer(nn.Module):
     '''
     x = tokens+positions
 
-    for tblock in self.tblocks:
-       x,padding = tblock.forward(x,padding)
+    for i,tblock in enumerate(self.tblocks):
+       x = tblock.forward(x,padding)
 
     #process the output before returning
     x = x.mean(dim=1) # calculates mean over the second dimension ie t. Now x is of shape (b,k) because each batch only has one vector
