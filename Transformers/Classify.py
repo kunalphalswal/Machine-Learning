@@ -1,138 +1,85 @@
-from helper import CTransformer
-import os
 import torch
-from transformers import AutoTokenizer
+from torch import nn
 import torch.nn.functional as F
-import pandas as pd
 
-def handle_data(file_path,batch_size=10,seq_length=512):
-      dataset = pd.read_csv(file_path)
+class SelfAttention(nn.Module):
+    def __init__(self, k, heads):
+        super().__init__()
+        assert k % heads == 0
+        self.k, self.heads = k, heads
 
-      #reshuffle the data
-      dataset = dataset.sample(frac=1).reset_index(drop=True)
+        self.toKeys = nn.Linear(k, k, bias=False) 
+        self.toQueries = nn.Linear(k, k, bias=False)
+        self.toValues = nn.Linear(k, k, bias=False)
+        self.unifyHeads = nn.Linear(k, k)
 
-      #making the size of dataset divisible by 100 so that suitable batches can be made
-      while(len(dataset)%100!=0):
-          dataset=dataset[:-1]
+    def forward(self, x, padding):
+        b, t, k = x.size()
+        h = self.heads
+        queries = self.toQueries(x)
+        keys = self.toKeys(x)
+        values = self.toValues(x)
 
-        #converting reviews to string datatype so that bert encoder can be applied on it.
-      reviews = dataset['review'].astype(str).tolist()
+        headSize = self.k // self.heads
+        keys = keys.view(b, t, h, headSize).transpose(1, 2).contiguous().view(b * h, t, headSize)
+        queries = queries.view(b, t, h, headSize).transpose(1, 2).contiguous().view(b * h, t, headSize)
+        values = values.view(b, t, h, headSize).transpose(1, 2).contiguous().view(b * h, t, headSize)
 
-      # Map the sentiment labels to numeric values
-      label_mapping = {
-          'positive': 1,
-          'negative': 0,
-          'neutral': 2
-      }
-      dataset['sentiment'] = dataset['sentiment'].map(label_mapping)
-      device = (
-        "cuda"
-        if torch.cuda.is_available()
-        else "mps"
-        if torch.backends.mps.is_available()
-        else "cpu"
-      )
-      labels = torch.tensor(dataset['sentiment'])
-      #Convert into vectors
-      tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
-      vocab_size = tokenizer.vocab_size
+        raw_weights = torch.bmm(queries, keys.transpose(1, 2))
+        padding = padding.unsqueeze(1).unsqueeze(2)
+        padding = padding.expand(b, h, t, t).contiguous().view(b * h, t, t)
 
-      #converts sentences of words to vector of integers.
-      encoded_reviews = tokenizer(
-          reviews,
-          return_tensors="pt", #retuning tensors are compatible with pytorch
-          padding=True,  #TODO: incorporate attention mask
-          truncation=True,
-          max_length=seq_length
-      )
-      padding = (encoded_reviews['attention_mask'])
-      # Define the split ratio 
-      train_size = int(0.5 * len(dataset))
-      test_size = len(dataset) - train_size
-      
-      #divide data into train, test and then batches
-      train_reviews =encoded_reviews['input_ids'][:train_size].view(train_size//batch_size,batch_size,seq_length)
-      test_reviews =encoded_reviews['input_ids'][train_size:].view(test_size//batch_size,batch_size,seq_length)
-      train_labels = labels[:train_size].view(train_size//batch_size,batch_size)
-      test_labels = labels[train_size:].view(test_size//batch_size,batch_size)
-      train_padding = padding[:train_size].view(train_size//batch_size,batch_size,seq_length)
-      test_padding = padding[train_size:].view(test_size//batch_size,batch_size,seq_length)
-      return (train_reviews.to(device), test_reviews.to(device),
-        train_labels.to(device), test_labels.to(device),train_padding.to(device),test_padding.to(device),
-        vocab_size)
+        attention_mask = (padding == 0)
+        raw_weights.masked_fill_(attention_mask, float('-inf'))
 
-def train(model,x_train,x_labels,padding,epochs=20,learning_rate=0.0001,lr_warmup=10000):
-  #set the model to training mode
-  model.train(True)
+        raw_weights /= headSize ** (1/2)
+        weights = F.softmax(raw_weights, dim=-1)
 
-  #TODO:read about optimizer and learning rate scheduler.
-  opt = torch.optim.Adam(lr=learning_rate, params=model.parameters())
-  sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda i: min(i / (lr_warmup / x_train.shape[1]), 1.0))
+        out = torch.bmm(weights, values).view(b, h, t, headSize)
+        out = out.transpose(1, 2).contiguous().view(b, t, h * headSize)
+        return self.unifyHeads(out)
 
-  #start the training in epochs, batches
-  for epoch in range(epochs):
-    epoch_loss = 0 
-    for batch_reviews,batch_labels,batch_padding in zip(x_train,x_labels,padding):
-      opt.zero_grad()
-      out = model.forward(batch_reviews,batch_padding)
-      loss = F.nll_loss(out,batch_labels) #TODO:read about negative log likelihood loss calculation
-      loss.backward()
-      epoch_loss += loss
-      #update parameters
-      opt.step()
-      #update learning rate
-      sch.step()
-    #log the loss
-    print(f"Epoch {epoch}, loss: {epoch_loss}")
-    #TODO:saving the model after each epoch to stop training without losing progress
+class TransformerBlock(nn.Module):
+    def __init__(self, k, heads):
+        super().__init__()
+        self.attention = SelfAttention(k, heads=heads)
+        self.norm1 = nn.LayerNorm(k)
+        self.norm2 = nn.LayerNorm(k)
 
-def test(model,x_test,x_labels,padding):
-    #set model to evaluation mode
-    model.eval()
-    correct = 0
-    for batch_reviews,batch_labels,batch_padding in zip(x_test,x_labels,padding):
-        out = model.forward(batch_reviews,batch_padding)
-        for i,prob in enumerate(out):
-            if(torch.argmax(out[i])==batch_labels[i]):
-                correct+=1
-    print(f"Accuracy: {(correct/(x_test.shape[0]*x_test.shape[1]))*100}%")
+        self.ff = nn.Sequential(
+            nn.Linear(k, 4 * k),
+            nn.ReLU(),
+            nn.Linear(4 * k, k)
+        )
 
-if __name__=="__main__":
-    """
-        1. Load the datasets
-        2. Pre-process the data:
-            2a. Tokenization: Convert words to numbers in the input.
-            2b. Length of each input(no of words) should be equal to seq_length.
-        3. Split into train and test
-        4. Decide batch size for training
-        5. Perform Training
-        6. Perform Testing
-    """
-    # Get cpu, gpu or mps device for training.
-    device = (
-        "cuda"
-        if torch.cuda.is_available()
-        else "mps"
-        if torch.backends.mps.is_available()
-        else "cpu"
-    )
-    print(f"Using {device} device")
-    #handle data
-    file_path="helper/IMDB.csv"
-    embedding_dim = 128
-    batch_size=5
-    seq_length=256
-    train_reviews,test_reviews,train_labels,test_labels,train_padding,test_padding,vocab_size=handle_data(file_path,batch_size=10,seq_length=seq_length)
+    def forward(self, x, padding):
+        attended = self.attention(x, padding)
+        x = self.norm1(attended + x)
+        fedForward = self.ff(x)
+        return self.norm2(fedForward + x)
 
-    if(os.path.exists("IMDBSentiment.pth")==False):
-        #train and save the model
-        #define the model 
-        model = CTransformer(k=embedding_dim,heads=8,depth=6,seq_length=seq_length,num_tokens=vocab_size,num_classes=2).to(device)
-        #start the training
-        train(model,x_train=train_reviews,x_labels=train_labels,padding=train_padding,epochs=80,learning_rate=0.0001,lr_warmup=10000)
-        torch.save(model.state_dict(),"IMDBSentiment.pth")
-    else:
-        #load the saved model
-        model = CTransformer(embedding_dim,8,6,seq_length,vocab_size,2).to(device)
-        model.load_state_dict(torch.load("IMDBSentiment.pth",map_location=device))
-    test(model,test_reviews,test_labels,padding=test_padding)
+class CTransformer(nn.Module):
+    def __init__(self, k, heads, depth, seq_length, num_tokens, num_classes):
+        super().__init__()
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.num_tokens = num_tokens 
+        self.token_emb = nn.Embedding(num_tokens, k).to(self.device)
+        self.pos_emb = nn.Embedding(seq_length, k).to(self.device)
+
+        self.tblocks = nn.ModuleList([TransformerBlock(k, heads) for _ in range(depth)])
+
+        self.toProbs = nn.Linear(k, num_classes).to(self.device)
+
+    def forward(self, x, padding):
+        tokens = self.token_emb(x)
+        b, t, k = tokens.size()
+        positions = torch.arange(t, device=self.device)
+        positions = self.pos_emb(positions)[None, :, :].expand(b, t, k)
+        x = tokens + positions
+
+        for tblock in self.tblocks:
+            x = tblock(x, padding)
+
+        x = x.mean(dim=1)
+        x = self.toProbs(x)
+        return F.log_softmax(x, dim=1)
