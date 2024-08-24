@@ -191,16 +191,16 @@ if __name__=="__main__":
     #handle data
     file_path="helper/enwik8.txt"
     embedding_dim = 256
-    batch_size=10
+    batch_size=32
     seq_length=256
-    train_reviews,test_reviews,train_labels,test_labels,vocab_size=handle_data(file_path,batch_size=10,seq_length=seq_length)
+    train_reviews,test_reviews,train_labels,test_labels,vocab_size=handle_data(file_path,batch_size=batch_size,seq_length=seq_length)
     tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
     if(os.path.exists("WikiGen.pth")==False):
         #train and save the model
         #define the model 
-        model = GTransformer(k=embedding_dim,heads=8,depth=6,seq_length=seq_length,num_tokens=tokenizer.vocab_size).to(device)
+        model = GTransformer(k=embedding_dim,heads=8,depth=12,seq_length=seq_length,num_tokens=tokenizer.vocab_size).to(device)
         #start the training
-        train(model,x_train=train_reviews,x_labels=train_labels,epochs=20,learning_rate=0.0001,lr_warmup=10000)
+        train(model,x_train=train_reviews,x_labels=train_labels,epochs=20,learning_rate=0.0001,lr_warmup=5000)
         torch.save(model.state_dict(),"WikiGen.pth")
     else:
         #load the saved model
@@ -213,3 +213,4 @@ if __name__=="__main__":
     seq = torch.tensor(encoded['input_ids'])
     padding = torch.tensor(encoded['attention_mask'])
     print(f"These are the predicted tokens:\n{inference(model,seq,padding)}")
+    #TODO: keep inferring after certain iterations of training.
