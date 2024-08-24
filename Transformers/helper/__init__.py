@@ -1,1 +1,2 @@
-from .transformers import SelfAttention, CTransformer, TransformerBlock
+from .classification import SelfAttention, CTransformer, CTransformerBlock
+from .generation import SelfAttentionGen, GTransformerBlock, GTransformer
